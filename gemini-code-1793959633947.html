@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>3D Mini App Demo</title>
+  <!-- Telegram WebApp SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- GSAP для пружинистых анимаций -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
+    body {
+      background: radial-gradient(circle at center, #1a1f35 0%, #090b10 100%);
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+    }
+    #canvas-container {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+    }
+    /* Верхняя панель профиля */
+    .top-bar {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      right: 16px;
+      z-index: 10;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(20, 24, 40, 0.75);
+      backdrop-filter: blur(12px);
+      padding: 10px 16px;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .user-info { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+    .badge { background: #3b82f6; padding: 2px 8px; border-radius: 8px; font-size: 11px; }
+    .balance { font-weight: 700; color: #fbbf24; font-size: 15px; }
+
+    /* Центральная подсказка и статус */
+    .hint-box {
+      position: absolute;
+      top: 82px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      text-align: center;
+      pointer-events: none;
+      width: 90%;
+    }
+    .hint-title { font-size: 20px; font-weight: 800; text-shadow: 0 2px 10px rgba(0,0,0,0.6); }
+    .hint-sub { font-size: 13px; color: #94a3b8; margin-top: 4px; }
+
+    /* Панель управления внизу */
+    .bottom-panel {
+      position: absolute;
+      bottom: 24px;
+      left: 16px;
+      right: 16px;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    /* Цветовые кнопки для режима кастомайзера */
+    .customizer-controls {
+      display: none;
+      justify-content: center;
+      gap: 12px;
+      background: rgba(20, 24, 40, 0.75);
+      backdrop-filter: blur(12px);
+      padding: 12px;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .color-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.4);
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
+    .color-btn:active { transform: scale(0.85); }
+    .wire-btn {
+      padding: 0 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.1);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* Переключатель режимов */
+    .tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      background: rgba(15, 18, 30, 0.9);
+      padding: 6px;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .tab-btn {
+      padding: 12px;
+      border: none;
+      border-radius: 12px;
+      background: transparent;
+      color: #94a3b8;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .tab-btn.active {
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      color: #ffffff;
+      box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
+    }
+  </style>
+
+  <!-- Карта импортов для Three.js + OrbitControls -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+
+  <div class="top-bar">
+    <div class="user-info">
+      <span id="username">Гость</span>
+      <span class="badge">3D PRO</span>
+    </div>
+    <div class="balance">⭐ <span id="score">100</span></div>
+  </div>
+
+  <div class="hint-box">
+    <div class="hint-title" id="mode-title">🎁 Тапай по кейсу (0/5)</div>
+    <div class="hint-sub" id="mode-sub">Каждый клик вызывает физическую вибрацию смартфона</div>
+  </div>
+
+  <div id="canvas-container"></div>
+
+  <div class="bottom-panel">
+    <div class="customizer-controls" id="customizer-ui">
+      <div class="color-btn" style="background: #00f2fe;" data-color="0x00f2fe"></div>
+      <div class="color-btn" style="background: #ff0844;" data-color="0xff0844"></div>
+      <div class="color-btn" style="background: #f59e0b;" data-color="0xf59e0b"></div>
+      <div class="color-btn" style="background: #10b981;" data-color="0x10b981"></div>
+      <button class="wire-btn" id="toggle-wire">Сетка (Wireframe)</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" id="tab-case">🎁 3D Кейс (Gacha)</button>
+      <button class="tab-btn" id="tab-showcase">💎 3D Витрина (360°)</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // 1. Инициализация Telegram WebApp
+    const tg = window.Telegram.WebApp;
+    tg.ready();
+    tg.expand(); // Разворачиваем на весь экран
+
+    // Подтягиваем имя пользователя из Telegram
+    const user = tg.initDataUnsafe?.user;
+    if (user?.first_name) {
+      document.getElementById('username').textContent = user.first_name;
+    }
+
+    // Настраиваем главную нативную кнопку Telegram снизу
+    tg.MainButton.setText('🚀 Заказать разработку 3D Mini App');
+    tg.MainButton.show();
+    tg.MainButton.onClick(() => {
+      tg.HapticFeedback.notificationOccurred('success');
+      tg.showAlert('Это демо-режим портфолио! Здесь может открываться оплата в Telegram Stars или форма заказа.');
+    });
+
+    // Функция безопасного вызова вибрации
+    function triggerHaptic(type = 'medium') {
+      if (tg.HapticFeedback) {
+        if (type === 'selection') tg.HapticFeedback.selectionChanged();
+        else if (type === 'success') tg.HapticFeedback.notificationOccurred('success');
+        else tg.HapticFeedback.impactOccurred(type);
+      }
+    }
+
+    // 2. Базовая сцена Three.js
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 1.5, 6);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.enablePan = false;
+    controls.minDistance = 3.5;
+    controls.maxDistance = 9;
+
+    // Освещение
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    scene.add(ambientLight);
+
+    const pointLight1 = new THREE.PointLight(0x3b82f6, 8, 15);
+    pointLight1.position.set(3, 3, 3);
+    scene.add(pointLight1);
+
+    const pointLight2 = new THREE.PointLight(0xf43f5e, 6, 15);
+    pointLight2.position.set(-3, -2, 2);
+    scene.add(pointLight2);
+
+    // 3. Объекты сцены
+    // Группа 1: Кибер-кейс (составная геометрия)
+    const caseGroup = new THREE.Group();
+    const boxGeo = new THREE.BoxGeometry(1.6, 1.6, 1.6);
+    const boxMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.7, roughness: 0.2 });
+    const boxMesh = new THREE.Mesh(boxGeo, boxMat);
+    caseGroup.add(boxMesh);
+
+    // Неоновый каркас вокруг кейса
+    const edgesGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.68, 1.68, 1.68));
+    const edgesMat = new THREE.LineBasicMaterial({ color: 0x38bdf8 });
+    const wireframe = new THREE.LineSegments(edgesGeo, edgesMat);
+    caseGroup.add(wireframe);
+    scene.add(caseGroup);
+
+    // Награда внутри кейса (появляется после открытия)
+    const rewardMat = new THREE.MeshStandardMaterial({
+      color: 0x00f2fe,
+      metalness: 0.85,
+      roughness: 0.15,
+      emissive: 0x003344
+    });
+    const rewardMesh = new THREE.Mesh(new THREE.TorusKnotGeometry(0.75, 0.25, 100, 16), rewardMat);
+    rewardMesh.scale.set(0, 0, 0);
+    scene.add(rewardMesh);
+
+    // 3D-партиклы для взрыва кейса
+    const particlesCount = 120;
+    const positions = new Float32Array(particlesCount * 3);
+    for (let i = 0; i < particlesCount * 3; i++) {
+      positions[i] = (Math.random() - 0.5) * 8;
+    }
+    const particlesGeo = new THREE.BufferGeometry();
+    particlesGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const particlesMat = new THREE.PointsMaterial({ color: 0x60a5fa, size: 0.06, transparent: true, opacity: 0.8 });
+    const particles = new THREE.Points(particlesGeo, particlesMat);
+    scene.add(particles);
+
+    // 4. Логика кликов по 3D-объектам (Raycaster)
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    let taps = 0;
+    let score = 100;
+    let currentMode = 'case'; // 'case' | 'showcase'
+    let isOpened = false;
+
+    window.addEventListener('pointerdown', (e) => {
+      // Игнорируем клики по UI-кнопкам
+      if (e.target.closest('.bottom-panel') || e.target.closest('.top-bar')) return;
+
+      pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
+      pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+
+      if (currentMode === 'case') {
+        const intersects = raycaster.intersectObjects([boxMesh, rewardMesh]);
+        if (intersects.length > 0) {
+          handleCaseTap();
+        }
+      }
+    });
+
+    function handleCaseTap() {
+      if (isOpened) {
+        // Сброс кейса
+        isOpened = false;
+        taps = 0;
+        gsap.to(rewardMesh.scale, { x: 0, y: 0, z: 0, duration: 0.3 });
+        gsap.to(caseGroup.scale, { x: 1, y: 1, z: 1, duration: 0.5, ease: 'back.out(1.7)' });
+        document.getElementById('mode-title').textContent = '🎁 Тапай по кейсу (0/5)';
+        document.getElementById('mode-sub').textContent = 'Каждый клик вызывает физическую вибрацию смартфона';
+        triggerHaptic('light');
+        return;
+      }
+
+      taps++;
+      if (taps < 5) {
+        triggerHaptic('medium');
+        document.getElementById('mode-title').textContent = `🎁 Тапай по кейсу (${taps}/5)`;
+        // Пружинистое сжатие и наклон при ударе
+        gsap.fromTo(caseGroup.scale, { x: 1.25, y: 0.8, z: 1.25 }, { x: 1, y: 1, z: 1, duration: 0.4, ease: 'elastic.out(1, 0.3)' });
+        gsap.to(caseGroup.rotation, { y: caseGroup.rotation.y + 0.6, duration: 0.3 });
+      } else {
+        // Открытие кейса!
+        isOpened = true;
+        triggerHaptic('success');
+        score += 250;
+        document.getElementById('score').textContent = score;
+        document.getElementById('mode-title').textContent = '🔥 ВЫПАЛ ЛЕГЕНДАРНЫЙ АРТЕФАКТ! (+250 ⭐)';
+        document.getElementById('mode-sub').textContent = 'Нажми на предмет еще раз, чтобы открыть новый кейс';
+
+        gsap.to(caseGroup.scale, { x: 0, y: 0, z: 0, duration: 0.3, ease: 'back.in(1.7)' });
+        gsap.to(rewardMesh.scale, { x: 1, y: 1, z: 1, duration: 0.7, delay: 0.15, ease: 'elastic.out(1, 0.4)' });
+      }
+    }
+
+    // 5. Переключение вкладок (Кейс / 3D-Витрина)
+    const tabCase = document.getElementById('tab-case');
+    const tabShowcase = document.getElementById('tab-showcase');
+    const customizerUI = document.getElementById('customizer-ui');
+
+    tabCase.addEventListener('click', () => {
+      triggerHaptic('selection');
+      currentMode = 'case';
+      tabCase.classList.add('active');
+      tabShowcase.classList.remove('active');
+      customizerUI.style.display = 'none';
+
+      isOpened = false;
+      taps = 0;
+      gsap.to(rewardMesh.scale, { x: 0, y: 0, z: 0, duration: 0.3 });
+      gsap.to(caseGroup.scale, { x: 1, y: 1, z: 1, duration: 0.5, ease: 'back.out(1.7)' });
+      document.getElementById('mode-title').textContent = '🎁 Тапай по кейсу (0/5)';
+      document.getElementById('mode-sub').textContent = 'Каждый клик вызывает физическую вибрацию смартфона';
+    });
+
+    tabShowcase.addEventListener('click', () => {
+      triggerHaptic('selection');
+      currentMode = 'showcase';
+      tabShowcase.classList.add('active');
+      tabCase.classList.remove('active');
+      customizerUI.style.display = 'flex';
+
+      gsap.to(caseGroup.scale, { x: 0, y: 0, z: 0, duration: 0.3 });
+      gsap.to(rewardMesh.scale, { x: 1.15, y: 1.15, z: 1.15, duration: 0.6, ease: 'back.out(1.7)' });
+      document.getElementById('mode-title').textContent = '💎 3D Кастомайзер товара';
+      document.getElementById('mode-sub').textContent = 'Крути модель пальцем на 360° и меняй материалы';
+    });
+
+    // Смена цвета и сетки в режиме витрины
+    document.querySelectorAll('.color-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        triggerHaptic('selection');
+        const hex = parseInt(btn.getAttribute('data-color'));
+        rewardMat.color.setHex(hex);
+        gsap.fromTo(rewardMesh.scale, { x: 1.3, y: 1.3, z: 1.3 }, { x: 1.15, y: 1.15, z: 1.15, duration: 0.3 });
+      });
+    });
+
+    document.getElementById('toggle-wire').addEventListener('click', () => {
+      triggerHaptic('light');
+      rewardMat.wireframe = !rewardMat.wireframe;
+    });
+
+    // 6. Анимационный цикл
+    const clock = new THREE.Clock();
+    function animate() {
+      requestAnimationFrame(animate);
+      const t = clock.getElapsedTime();
+
+      // Плавная левитация объектов
+      caseGroup.position.y = Math.sin(t * 2.5) * 0.12;
+      if (!isOpened && currentMode === 'case') {
+        caseGroup.rotation.y += 0.008;
+        caseGroup.rotation.x = Math.sin(t * 1.2) * 0.1;
+      }
+
+      rewardMesh.rotation.y += 0.015;
+      rewardMesh.rotation.x += 0.008;
+      particles.rotation.y = t * 0.05;
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // Адаптация под размер экрана
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
